@@ -60,6 +60,99 @@ async def get_alerts(state: str) -> str:
 
 
 @mcp.tool()
+async def get_tokyo_weather() -> str:
+    """Get weather forecast for Tokyo."""
+    # ref: https://anko.education/webapi/jma
+    url = "https://www.jma.go.jp/bosai/forecast/data/forecast/130000.json"
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(url, headers=headers, timeout=30.0)
+            response.raise_for_status()
+            data = response.json()
+
+        # JMAのレスポンスは配列。
+        # timeSeries -> areas[].weathers の先頭が「今日」
+        preferred_names = ("東京地方", "東京", "Tokyo")
+        today_weather: str | None = None
+
+        if isinstance(data, list):
+            for obj in data:
+                time_series = (
+                    obj.get("timeSeries", [])
+                    if isinstance(obj, dict)
+                    else []
+                )
+                for ts in time_series:
+                    areas = (
+                        ts.get("areas", [])
+                        if isinstance(ts, dict)
+                        else []
+                    )
+                    for area in areas:
+                        if not isinstance(area, dict):
+                            continue
+                        weathers_any = area.get("weathers")
+                        if (
+                            not isinstance(weathers_any, list)
+                            or not weathers_any
+                        ):
+                            continue
+                        weathers = weathers_any
+                        area_info = (
+                            area.get("area", {})
+                            if isinstance(area.get("area"), dict)
+                            else {}
+                        )
+                        area_name = area_info.get("name", "")
+                        if any(name in area_name for name in preferred_names):
+                            today_weather = weathers[0] if weathers else None
+                            break
+                    if today_weather:
+                        break
+                if today_weather:
+                    break
+
+        # フォールバック: 最初に見つかったweathersの先頭を使用
+        if not today_weather and isinstance(data, list):
+            for obj in data:
+                time_series = (
+                    obj.get("timeSeries", [])
+                    if isinstance(obj, dict)
+                    else []
+                )
+                for ts in time_series:
+                    areas = (
+                        ts.get("areas", [])
+                        if isinstance(ts, dict)
+                        else []
+                    )
+                    for area in areas:
+                        if isinstance(area, dict):
+                            weathers_any = area.get("weathers")
+                            if (
+                                isinstance(weathers_any, list)
+                                and weathers_any
+                            ):
+                                today_weather = weathers_any[0]
+                                break
+                            break
+                    if today_weather:
+                        break
+                if today_weather:
+                    break
+
+        if today_weather:
+            return f"東京の今日の天気: {today_weather}"
+        return "東京の天気情報を取得できませんでした。"
+    except Exception:
+        return "東京の天気情報を取得できませんでした。"
+
+
+@mcp.tool()
 async def get_forecast(latitude: float, longitude: float) -> str:
     """Get weather forecast for a location.
 
@@ -98,11 +191,10 @@ Forecast: {period['detailedForecast']}
 
 async def main():
     # ロサンゼルス
-    result = await get_forecast(34.0522, -118.2437)
+    # result = await get_forecast(34.0522, -118.2437)
+    result = await get_tokyo_weather()
     print(result)
 
 if __name__ == "__main__":
     # Initialize and run the server
     mcp.run(transport='stdio')
-
-    # asyncio.run(main())
